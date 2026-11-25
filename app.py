@@ -32,13 +32,8 @@ def carregar_geojson() -> dict:
         return json.load(f)
 
 
-@st.cache_data
-def carregar_tabela() -> dict:
-    return montar_tabela_uf()
-
-
 BR_GEOJSON = carregar_geojson()
-TABELA = carregar_tabela()
+TABELA = montar_tabela_uf()
 
 
 def diverging_scale(values: list[float], mid: float, low_color: str, mid_color: str, high_color: str):
