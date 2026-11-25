@@ -1,25 +1,44 @@
-"""Mapa hexagonal: frota de veiculos plug-in x eletropostos por UF (Brasil)."""
+"""Mapa coropletico: frota de veiculos plug-in x eletropostos por UF (Brasil)."""
 
-import math
+import json
+from pathlib import Path
 
 import plotly.graph_objects as go
 import streamlit as st
 
-from dados_uf import REGIAO_COLORS, REGIAO_ORDER, META_RAZAO, montar_tabela_uf
+from dados_uf import META_RAZAO, montar_tabela_uf
 
 st.set_page_config(page_title="Mapa Eletropostos x Frota Plug-in", page_icon="🔌", layout="wide")
 
-TABELA = montar_tabela_uf()
+GEOJSON_PATH = Path(__file__).parent / "brasil_uf.geojson"
 
 VIEWS = ["Indice de Pressao", "Frota Plug-in", "Eletropostos Ativos", "Comparativo Direto"]
 
-HEX_SIZE = 46
+# Paleta: diverging azul<->vermelho com meio-termo cinza neutro (nunca verde/vermelho,
+# para nao depender da distincao de cor mais dificil para daltonismo); sequenciais de
+# matiz unica, azul e laranja, claro->escuro.
+DIVERGENTE_BAIXO = "#2a78d6"   # abaixo da meta (folga)
+DIVERGENTE_MEIO = "#f0efec"    # neutro, na meta
+DIVERGENTE_ALTO = "#e34948"    # acima da meta (pressao)
+SEQ_AZUL = [[0, "#cde2fb"], [0.33, "#5598e7"], [0.66, "#256abf"], [1, "#0d366b"]]
+SEQ_LARANJA = [[0, "#fce3d2"], [0.33, "#f3a467"], [0.66, "#d9711f"], [1, "#7a3a0f"]]
+GRID_COLOR = "#e1e0d9"
+MUTED_INK = "#898781"
 
 
-def hex_xy(row: int, col: int) -> tuple[float, float]:
-    x = math.sqrt(3) * (col + 0.5 * (row % 2))
-    y = -1.5 * row
-    return x, y
+@st.cache_data
+def carregar_geojson() -> dict:
+    with open(GEOJSON_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data
+def carregar_tabela() -> dict:
+    return montar_tabela_uf()
+
+
+BR_GEOJSON = carregar_geojson()
+TABELA = carregar_tabela()
 
 
 def diverging_scale(values: list[float], mid: float, low_color: str, mid_color: str, high_color: str):
@@ -31,114 +50,126 @@ def diverging_scale(values: list[float], mid: float, low_color: str, mid_color: 
     return [[0, low_color], [frac, mid_color], [1, high_color]], vmin, vmax
 
 
-def build_hexmap(metric_key: str, title: str, colorscale, cmin=None, cmax=None, colorbar_title=""):
-    siglas, xs, ys, vals, hover = [], [], [], [], []
-    for uf, d in TABELA.items():
-        x, y = hex_xy(d["hex_row"], d["hex_col"])
-        siglas.append(uf)
-        xs.append(x)
-        ys.append(y)
-        vals.append(d[metric_key])
-        hover.append(
-            f"<b>{d['nome']} ({uf})</b><br>"
-            f"Regiao: {d['regiao']}<br>"
-            f"Frota plug-in: {d['frota_plugin']:,}".replace(",", ".") + f" ({d['frota_fonte']})<br>"
-            f"Eletropostos: {d['eletropostos']:,}".replace(",", ".") + f" ({d['eletropostos_fonte']})<br>"
-            f"Razao veic./posto: {d['razao_veic_posto']}:1<br>"
-            f"Indice de pressao (meta {META_RAZAO}:1): {d['indice_pressao']}<br>"
-            f"Deficit de eletropostos p/ meta: {d['deficit_eletropostos']}"
-        )
+def hover_estado(d: dict) -> str:
+    return (
+        f"<b>{d['nome']} ({d['sigla']})</b><br>"
+        f"Regiao: {d['regiao']}<br>"
+        f"Frota plug-in: {d['frota_plugin']:,}".replace(",", ".") + f" ({d['frota_fonte']})<br>"
+        f"Eletropostos: {d['eletropostos']:,}".replace(",", ".") + f" ({d['eletropostos_fonte']})<br>"
+        f"Razao veic./posto: {d['razao_veic_posto']}:1<br>"
+        f"Indice de pressao (meta {META_RAZAO}:1): {d['indice_pressao']}<br>"
+        f"Deficit de eletropostos p/ meta: {d['deficit_eletropostos']}"
+    )
+
+
+def build_choropleth(metric_key: str, title: str, colorscale, cmin=None, cmax=None, colorbar_title: str = ""):
+    siglas = list(TABELA.keys())
+    vals = [TABELA[uf][metric_key] for uf in siglas]
+    hover = [hover_estado(TABELA[uf]) for uf in siglas]
 
     fig = go.Figure()
     fig.add_trace(
-        go.Scatter(
-            x=xs,
-            y=ys,
-            mode="markers+text",
-            marker=dict(
-                symbol="hexagon",
-                size=HEX_SIZE,
-                color=vals,
-                colorscale=colorscale,
-                cmin=cmin,
-                cmax=cmax,
-                line=dict(color="white", width=1.5),
-                colorbar=dict(title=colorbar_title, thickness=14),
-            ),
-            text=siglas,
-            textfont=dict(size=12, color="#1a1a1a", family="Arial Black"),
+        go.Choropleth(
+            geojson=BR_GEOJSON,
+            featureidkey="properties.sigla",
+            locations=siglas,
+            z=vals,
+            colorscale=colorscale,
+            zmin=cmin,
+            zmax=cmax,
+            marker_line_color="white",
+            marker_line_width=1,
+            colorbar=dict(title=colorbar_title, thickness=14, len=0.75),
             hovertext=hover,
             hoverinfo="text",
+        )
+    )
+    fig.add_trace(
+        go.Scattergeo(
+            lon=[TABELA[uf]["lon"] for uf in siglas],
+            lat=[TABELA[uf]["lat"] for uf in siglas],
+            text=siglas,
+            mode="text",
+            textfont=dict(size=10, color="#0b0b0b", family="Arial Black"),
+            hoverinfo="skip",
             showlegend=False,
         )
     )
+    fig.update_geos(
+        fitbounds="locations",
+        visible=False,
+        bgcolor="rgba(0,0,0,0)",
+        projection_type="mercator",
+    )
     fig.update_layout(
         title=title,
-        xaxis=dict(visible=False, scaleanchor="y", scaleratio=1),
-        yaxis=dict(visible=False),
-        plot_bgcolor="white",
-        margin=dict(l=10, r=10, t=50, b=10),
+        margin=dict(l=0, r=0, t=50, b=0),
         height=640,
+        paper_bgcolor="white",
     )
     return fig
 
 
 def build_comparativo():
+    """Ranking horizontal da razao veic./posto por UF, com linha de meta (delta-to-target)."""
+    ordenado = sorted(TABELA.values(), key=lambda d: -d["razao_veic_posto"])
+    siglas_labels = [f"{d['sigla']} — {d['nome']}" for d in ordenado]
+    razoes = [d["razao_veic_posto"] for d in ordenado]
+    hover = [hover_estado(d) for d in ordenado]
+
+    scale, vmin, vmax = diverging_scale(
+        razoes, mid=META_RAZAO, low_color=DIVERGENTE_BAIXO, mid_color=DIVERGENTE_MEIO, high_color=DIVERGENTE_ALTO
+    )
+
+    # rotulo direto apenas nos extremos (estado mais e menos pressionado) - nunca em todos os pontos
+    textos = [""] * len(ordenado)
+    textos[0] = f"{razoes[0]}:1"
+    textos[-1] = f"{razoes[-1]}:1"
+
     fig = go.Figure()
-    max_e = max(d["eletropostos"] for d in TABELA.values())
-    linha_x = [0, max_e * 1.15]
-    linha_y = [0, max_e * 1.15 * META_RAZAO]
     fig.add_trace(
-        go.Scatter(
-            x=linha_x,
-            y=linha_y,
-            mode="lines",
-            line=dict(color="#999999", width=1.5, dash="dash"),
-            name=f"Meta {META_RAZAO}:1",
-            hoverinfo="skip",
+        go.Bar(
+            x=razoes,
+            y=siglas_labels,
+            orientation="h",
+            marker=dict(
+                color=razoes,
+                colorscale=scale,
+                cmin=vmin,
+                cmax=vmax,
+                colorbar=dict(title="Razao", thickness=12, len=0.75),
+            ),
+            text=textos,
+            textposition="outside",
+            textfont=dict(size=11),
+            cliponaxis=False,
+            hovertext=hover,
+            hoverinfo="text",
         )
     )
-    for regiao in REGIAO_ORDER:
-        estados = [d for d in TABELA.values() if d["regiao"] == regiao]
-        if not estados:
-            continue
-        fig.add_trace(
-            go.Scatter(
-                x=[d["eletropostos"] for d in estados],
-                y=[d["frota_plugin"] for d in estados],
-                mode="markers+text",
-                marker=dict(
-                    size=[8 + d["populacao_mi"] * 1.1 for d in estados],
-                    color=REGIAO_COLORS[regiao],
-                    line=dict(color="white", width=1),
-                ),
-                text=[d["sigla"] for d in estados],
-                textposition="top center",
-                textfont=dict(size=10),
-                name=regiao,
-                hovertext=[
-                    f"<b>{d['nome']} ({d['sigla']})</b><br>"
-                    f"Eletropostos: {d['eletropostos']:,}".replace(",", ".")
-                    + f"<br>Frota plug-in: {d['frota_plugin']:,}".replace(",", ".")
-                    + f"<br>Razao: {d['razao_veic_posto']}:1"
-                    for d in estados
-                ],
-                hoverinfo="text",
-            )
-        )
+    fig.add_vline(
+        x=META_RAZAO,
+        line_dash="dash",
+        line_color=MUTED_INK,
+        line_width=1.5,
+        annotation_text=f"Meta {META_RAZAO}:1",
+        annotation_position="top",
+        annotation_font_color=MUTED_INK,
+    )
     fig.update_layout(
-        title="Comparativo direto: frota plug-in vs. eletropostos (acima da linha = acima da meta 10:1)",
-        xaxis=dict(title="Eletropostos ativos (escala log)", type="log"),
-        yaxis=dict(title="Frota plug-in (escala log)", type="log"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        title="Razao veiculos plug-in por eletroposto, por UF (do mais ao menos pressionado)",
+        xaxis=dict(title="Veiculos plug-in por eletroposto ativo", gridcolor=GRID_COLOR, zeroline=False),
+        yaxis=dict(title="", autorange="reversed", tickfont=dict(size=11), automargin=True),
+        bargap=0.3,
         plot_bgcolor="white",
-        margin=dict(l=10, r=10, t=70, b=10),
-        height=640,
+        paper_bgcolor="white",
+        margin=dict(l=10, r=70, t=60, b=40),
+        height=920,
     )
     return fig
 
 
-st.title("🔌 Frota Plug-in x Eletropostos — Mapa Hexagonal do Brasil")
+st.title("🔌 Frota Plug-in x Eletropostos — Mapa do Brasil")
 st.caption(
     "Comparativo por UF entre a frota de veiculos plug-in (eletricos + hibridos plug-in) "
     "e a quantidade de eletropostos ativos, com indice de pressao em relacao a uma meta "
@@ -160,8 +191,10 @@ view = st.radio("Visao", VIEWS, horizontal=True)
 
 if view == "Indice de Pressao":
     vals = [d["indice_pressao"] for d in TABELA.values()]
-    scale, vmin, vmax = diverging_scale(vals, mid=1.0, low_color="#1b7a4a", mid_color="#f2efe9", high_color="#c23b22")
-    fig = build_hexmap(
+    scale, vmin, vmax = diverging_scale(
+        vals, mid=1.0, low_color=DIVERGENTE_BAIXO, mid_color=DIVERGENTE_MEIO, high_color=DIVERGENTE_ALTO
+    )
+    fig = build_choropleth(
         "indice_pressao",
         "Indice de pressao sobre a infraestrutura (1.0 = meta de 10 veic./posto atingida)",
         scale,
@@ -169,30 +202,31 @@ if view == "Indice de Pressao":
         cmax=vmax,
         colorbar_title="Indice",
     )
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption("Verde = folga de infraestrutura (abaixo da meta). Vermelho = pressao acima da meta (deficit de eletropostos).")
+    st.plotly_chart(fig, use_container_width=True, theme=None)
+    st.caption("Azul = folga de infraestrutura (abaixo da meta). Vermelho = pressao acima da meta (deficit de eletropostos).")
 
 elif view == "Frota Plug-in":
-    fig = build_hexmap(
+    fig = build_choropleth(
         "frota_plugin",
         "Frota de veiculos plug-in por UF",
-        [[0, "#eaf1fb"], [1, "#1a4d8f"]],
+        SEQ_AZUL,
         colorbar_title="Veiculos",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
 
 elif view == "Eletropostos Ativos":
-    fig = build_hexmap(
+    fig = build_choropleth(
         "eletropostos",
         "Eletropostos ativos por UF",
-        [[0, "#e8f8f1"], [1, "#0f6b45"]],
+        SEQ_LARANJA,
         colorbar_title="Eletropostos",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
 
 else:
     fig = build_comparativo()
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
+    st.caption("Barras acima da linha pontilhada representam UFs com mais veiculos por posto do que a meta de referencia.")
 
 with st.expander("Ver tabela completa por UF"):
     linhas = sorted(TABELA.values(), key=lambda d: -d["frota_plugin"])
@@ -224,5 +258,6 @@ st.caption(
     "baseada no ranking NeoCharge/Senatran dos 10 maiores estados. Estados sem numero publicado "
     "individualmente foram estimados por proporcionalidade populacional (IBGE) sobre o saldo "
     "nacional remanescente — ver coluna de fonte na tabela. A meta de 10 veiculos por eletroposto "
-    "e um benchmark de referencia adotado pela aplicacao, nao uma meta oficial unica do governo."
+    "e um benchmark de referencia adotado pela aplicacao, nao uma meta oficial unica do governo. "
+    "Fronteiras estaduais: click_that_hood (CC0), geometria simplificada."
 )

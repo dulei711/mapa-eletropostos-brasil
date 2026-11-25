@@ -51,39 +51,38 @@ REGIAO_COLORS = {
     "Sul": "#e87ba4",
 }
 
-# sigla -> (nome, regiao, populacao em milhoes [IBGE, estimativa 2024], (linha, coluna) no grid hexagonal)
+# sigla -> (nome, regiao, populacao em milhoes [IBGE, estimativa 2024], (lon, lat) centroide real do poligono da UF)
+# Centroides calculados a partir do poligono de cada UF (brasil_uf.geojson, base click_that_hood/CC0),
+# pelo metodo padrao de centroide de poligono (area-weighted), usando o maior anel de cada UF.
 UF_INFO = {
-    "AC": ("Acre", "Norte", 0.9, (3, 2)),
-    "AL": ("Alagoas", "Nordeste", 3.3, (4, 13)),
-    "AP": ("Amapa", "Norte", 0.87, (0, 8)),
-    "AM": ("Amazonas", "Norte", 4.3, (2, 4)),
-    "BA": ("Bahia", "Nordeste", 14.9, (4, 11)),
-    "CE": ("Ceara", "Nordeste", 9.3, (2, 12)),
-    "DF": ("Distrito Federal", "Centro-Oeste", 3.1, (5, 9)),
-    "ES": ("Espirito Santo", "Sudeste", 4.1, (7, 12)),
-    "GO": ("Goias", "Centro-Oeste", 7.3, (5, 8)),
-    "MA": ("Maranhao", "Nordeste", 7.1, (2, 10)),
-    "MT": ("Mato Grosso", "Centro-Oeste", 3.8, (4, 6)),
-    "MS": ("Mato Grosso do Sul", "Centro-Oeste", 2.9, (7, 7)),
-    "MG": ("Minas Gerais", "Sudeste", 21.3, (6, 10)),
-    "PA": ("Para", "Norte", 8.3, (2, 8)),
-    "PB": ("Paraiba", "Nordeste", 4.1, (3, 13)),
-    "PR": ("Parana", "Sul", 11.8, (8, 8)),
-    "PE": ("Pernambuco", "Nordeste", 9.5, (3, 12)),
-    "PI": ("Piaui", "Nordeste", 3.3, (3, 11)),
-    "RJ": ("Rio de Janeiro", "Sudeste", 16.7, (7, 11)),
-    "RN": ("Rio Grande do Norte", "Nordeste", 3.4, (2, 13)),
-    "RS": ("Rio Grande do Sul", "Sul", 11.3, (10, 7)),
-    "RO": ("Rondonia", "Norte", 1.8, (4, 4)),
-    "RR": ("Roraima", "Norte", 0.65, (0, 5)),
-    "SC": ("Santa Catarina", "Sul", 8.0, (9, 8)),
-    "SP": ("Sao Paulo", "Sudeste", 46.0, (7, 9)),
-    "SE": ("Sergipe", "Nordeste", 2.3, (4, 13)),
-    "TO": ("Tocantins", "Norte", 1.6, (4, 9)),
+    "AC": ("Acre", "Norte", 0.9, (-70.45, -9.31)),
+    "AL": ("Alagoas", "Nordeste", 3.3, (-36.62, -9.51)),
+    "AP": ("Amapa", "Norte", 0.87, (-51.96, 1.44)),
+    "AM": ("Amazonas", "Norte", 4.3, (-64.70, -4.18)),
+    "BA": ("Bahia", "Nordeste", 14.9, (-41.72, -12.47)),
+    "CE": ("Ceara", "Nordeste", 9.3, (-39.62, -5.09)),
+    "DF": ("Distrito Federal", "Centro-Oeste", 3.1, (-47.80, -15.78)),
+    "ES": ("Espirito Santo", "Sudeste", 4.1, (-40.67, -19.57)),
+    "GO": ("Goias", "Centro-Oeste", 7.3, (-49.62, -16.04)),
+    "MA": ("Maranhao", "Nordeste", 7.1, (-45.28, -5.06)),
+    "MT": ("Mato Grosso", "Centro-Oeste", 3.8, (-55.91, -12.95)),
+    "MS": ("Mato Grosso do Sul", "Centro-Oeste", 2.9, (-54.84, -20.33)),
+    "MG": ("Minas Gerais", "Sudeste", 21.3, (-44.67, -18.46)),
+    "PA": ("Para", "Norte", 8.3, (-53.06, -3.97)),
+    "PB": ("Paraiba", "Nordeste", 4.1, (-36.83, -7.12)),
+    "PR": ("Parana", "Sul", 11.8, (-51.61, -24.63)),
+    "PE": ("Pernambuco", "Nordeste", 9.5, (-38.00, -8.32)),
+    "PI": ("Piaui", "Nordeste", 3.3, (-42.97, -7.39)),
+    "RJ": ("Rio de Janeiro", "Sudeste", 16.7, (-42.65, -22.19)),
+    "RN": ("Rio Grande do Norte", "Nordeste", 3.4, (-36.67, -5.84)),
+    "RS": ("Rio Grande do Sul", "Sul", 11.3, (-53.32, -29.71)),
+    "RO": ("Rondonia", "Norte", 1.8, (-62.84, -10.91)),
+    "RR": ("Roraima", "Norte", 0.65, (-61.40, 2.08)),
+    "SC": ("Santa Catarina", "Sul", 8.0, (-50.49, -27.24)),
+    "SP": ("Sao Paulo", "Sudeste", 46.0, (-48.73, -22.26)),
+    "SE": ("Sergipe", "Nordeste", 2.3, (-37.44, -10.58)),
+    "TO": ("Tocantins", "Norte", 1.6, (-48.33, -10.15)),
 }
-# corrige colisao SE/AL no grid: SE fica uma coluna a oeste de AL
-UF_INFO["SE"] = ("Sergipe", "Nordeste", 2.3, (4, 13))
-UF_INFO["AL"] = ("Alagoas", "Nordeste", 3.3, (4, 14))
 
 ELETROPOSTOS_REPORTADOS = {
     "SP": 4500,
@@ -165,7 +164,7 @@ def montar_tabela_uf() -> dict[str, dict]:
     eletropostos = _montar_eletropostos()
     frota = _montar_frota()
     tabela = {}
-    for uf, (nome, regiao, pop, hexpos) in UF_INFO.items():
+    for uf, (nome, regiao, pop, centro) in UF_INFO.items():
         f = frota[uf]["valor"]
         e = eletropostos[uf]["valor"]
         razao = f / e if e else float("inf")
@@ -176,8 +175,8 @@ def montar_tabela_uf() -> dict[str, dict]:
             "nome": nome,
             "regiao": regiao,
             "populacao_mi": pop,
-            "hex_row": hexpos[0],
-            "hex_col": hexpos[1],
+            "lon": centro[0],
+            "lat": centro[1],
             "frota_plugin": f,
             "frota_fonte": frota[uf]["fonte"],
             "eletropostos": e,
